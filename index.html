@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>超市跑酷 - 最終穩定版</title>
+    <style>
+        * { box-sizing: border-box; touch-action: none; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #222; font-family: sans-serif; }
+        #game-container { position: relative; width: 100vw; height: 100vh; max-width: 500px; margin: 0 auto; background: #fff; border-left: 1px solid #444; border-right: 1px solid #444; }
+        canvas { display: block; width: 100%; height: 100%; }
+        
+        .hud { position: absolute; top: 10px; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; color: #fff; font-size: 18px; text-shadow: 1px 1px 2px #000; pointer-events: none; z-index: 5; }
+        .target-box { 
+            position: absolute; top: 60px; left: 50%; transform: translateX(-50%); 
+            background: white; border: 3px solid #2ecc71; border-radius: 15px; padding: 10px 20px; 
+            text-align: center; z-index: 10; cursor: pointer; pointer-events: auto; min-width: 150px;
+        }
+        .btn-start { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            padding: 20px 40px; font-size: 24px; background: #2ecc71; color: white; 
+            border: none; border-radius: 50px; cursor: pointer; font-weight: bold; z-index: 100; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div class="hud">
+        <div id="score">分數: 0</div>
+        <div id="status">準備中...</div>
+    </div>
+    
+    <div id="target-ui" class="target-box hidden" onclick="game.speak()">
+        <div id="target-word" style="font-size: 24px; font-weight: bold; color: #333;">載入中</div>
+        <small style="color: #2ecc71;">🔊 點擊聽發音 & 暫停</small>
+    </div>
+
+    <button id="start-btn" class="btn-start" onclick="game.start()">點擊開始遊戲</button>
+    <canvas id="canvas"></canvas>
+</div>
+
+<script>
+// --- 1. 遊戲設定 ---
+const ITEMS = [
+    { n: "牛奶", c: "#3498db" }, { n: "雞腿", c: "#e67e22" }, { n: "衛生紙", c: "#bdc3c7" },
+    { n: "麵包", c: "#d35400" }, { n: "雞蛋", c: "#f1c40f" }, { n: "蘋果", c: "#e74c3c" },
+    { n: "打折", c: "#f1c40f" }, { n: "收銀台", c: "#9b59b6" }, { n: "推車", c: "#34495e" }
+];
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let w, h, laneW;
+
+const game = {
+    active: false,
+    paused: false,
+    score: 0,
+    lane: 1, // 0, 1, 2
+    objs: [],
+    target: null,
+    offset: 0,
+    speed: 4,
+
+    init() {
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        this.render(); // 讓背景先動起來
+    },
+
+    resize() {
+        w = canvas.width = canvas.offsetWidth;
+        h = canvas.height = canvas.offsetHeight;
+        laneW = w / 3;
+    },
+
+    start() {
+        this.active = true;
+        this.score = 0;
+        this.speed = 4;
+        this.objs = [];
+        this.lane = 1;
+        document.getElementById('start-btn').classList.add('hidden');
+        document.getElementById('target-ui').classList.remove('hidden');
+        document.getElementById('status').innerText = "遊戲中";
+        this.next();
+    },
+
+    next() {
+        this.target = ITEMS[Math.floor(Math.random() * ITEMS.length)];
+        document.getElementById('target-word').innerText = this.target.n;
+    },
+
+    speak() {
+        this.paused = true;
+        const m = new SpeechSynthesisUtterance(this.target.n);
+        m.lang = 'zh-TW';
+        m.onend = () => { game.paused = false; };
+        window.speechSynthesis.speak(m);
+    },
+
+    spawn() {
+        const correct = Math.floor(Math.random() * 3);
+        for(let i=0; i<3; i++) {
+            const data = (i === correct) ? this.target : ITEMS[Math.floor(Math.random() * ITEMS.length)];
+            this.objs.push({ x: i, y: -100, data: data, isCorrect: (i === correct) });
+        }
+    },
+
+    update() {
+        if (!this.active || this.paused) return;
+        
+        this.offset = (this.offset + this.speed) % 100;
+        this.speed += 0.0005;
+
+        if (this.objs.length === 0 || this.objs[this.objs.length - 1].y > 250) {
+            this.spawn();
+        }
+
+        for (let i = this.objs.length - 1; i >= 0; i--) {
+            let o = this.objs[i];
+            o.y += this.speed;
+
+            // 碰撞檢測
+            if (o.y > h - 150 && o.y < h - 70 && o.x === this.lane) {
+                if (o.isCorrect) {
+                    this.score += 10;
+                    document.getElementById('score').innerText = "分數: " + this.score;
+                    this.objs = []; // 清空這一波
+                    this.next();
+                    break;
+                } else {
+                    this.gameOver();
+                }
+            }
+        }
+        this.objs = this.objs.filter(o => o.y < h + 100);
+    },
+
+    draw() {
+        // 地板
+        ctx.fillStyle = "#bdc3c7";
+        ctx.fillRect(0, 0, w, h);
+        
+        // 畫格線 (背景動感)
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1;
+        for (let i = -1; i < 12; i++) {
+            let y = i * 100 + this.offset;
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+        }
+
+        // 畫三條賽道
+        ctx.fillStyle = "rgba(255,255,255,0.1)";
+        ctx.fillRect(0, 0, w, h);
+
+        // 玩家 (簡化為方塊)
+        const px = this.lane * laneW + laneW/2;
+        ctx.fillStyle = "#2c3e50";
+        ctx.fillRect(
